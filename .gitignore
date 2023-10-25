@@ -1,0 +1,6 @@
+uploads
+tmp
+certs
+data
+.env
+!.gitignore

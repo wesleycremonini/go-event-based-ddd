@@ -1,0 +1,83 @@
+name: Deploy homolog DO
+
+on:
+  push:
+    branches:
+      - homolog
+
+env:
+  DOCKER_BUILDKIT: 1
+  TAG: registry.digitalocean.com/you/${{ github.event.repository.name }}-h
+  FILE: docker/Dockerfile.do
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Discord init notif
+        if: always()
+        env:
+          DISCORD_USERNAME: Github Bot
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@99b3d928867937d16b8c9a7d3b5db5c59f499f6c
+        with:
+          args: |
+            "```fix
+            Repository: ${{ github.event.repository.name }}
+            Action:     Iniciando deploy em homolog
+            Committer:  ${{ github.event.commits[0].author.name }} 
+            ID:         ${{ github.event.commits[0].id }}
+            Message:    ${{ github.event.commits[0].message }}
+            ```"
+
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Build image
+        run: docker build -t $TAG -f $FILE .
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Temp auth doctl registry
+        run: doctl registry login --expiry-seconds 600
+
+      - name: Push image
+        run: docker push $TAG
+
+      - name: Temp save doctl kubeconfig
+        run: doctl kubernetes cluster kubeconfig save ${{ secrets.DIGITALOCEAN_CLUSTER_ID_H }} --expiry-seconds 600
+
+      - name: Start deployment rolling update
+        run: kubectl rollout restart deploy ${{ github.event.repository.name }}-deployment
+
+      - name: Verify deployment
+        run: kubectl rollout status deploy
+
+      - name: Discord success notif
+        if: success()
+        env:
+          DISCORD_USERNAME: Github Bot
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@99b3d928867937d16b8c9a7d3b5db5c59f499f6c
+        with:
+          args: |
+            "```diff
+            + Repository: ${{ github.event.repository.name }}
+            + Message:    Deploy em homolog realizado com sucesso
+            ```"
+
+      - name: Discord failure notif
+        if: failure()
+        env:
+          DISCORD_USERNAME: Github Bot
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        uses: Ilshidur/action-discord@99b3d928867937d16b8c9a7d3b5db5c59f499f6c
+        with:
+          args: |
+            "```diff
+            - Repository: ${{ github.event.repository.name }}
+            - Message:    Deploy em homolog falhou
+            ```"
